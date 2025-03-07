@@ -1,208 +1,13 @@
-import os
-import logging
-import sys
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from flask import Flask, request, jsonify
-from asana import Client
-from datetime import datetime
-
-app = Flask(__name__)
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger()
-
-# Asana API setup
-asana_token = os.environ.get('ASANA_TOKEN')
-client = Client.access_token(asana_token)
-
-# Email setup (add these environment variables in Railway)
-EMAIL_USER = os.environ.get('EMAIL_USER')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
-EMAIL_SERVER = os.environ.get('EMAIL_SERVER', 'smtp.gmail.com')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
-
-# Project IDs and constants
-REPAIR_PROJECT_ID = '1209602262926911'  # The ID of your Repair Requests project
-SUBTASKS_PROJECT_ID = REPAIR_PROJECT_ID  # By default, create subtasks in the same project
-EMAIL_DISTRIBUTION_LIST = 'jgooden@sulton.co'  # Replace with your actual email or comma-separated list
-
-# Dictionary to store webhook secret dynamically
-WEBHOOK_SECRET = {}
-
-def create_category_subtasks(task_gid, issue_category):
-    """Create appropriate subtasks based on the repair category"""
-    try:
-        # Define subtasks based on category
-        subtasks = []
-        
-        # Common subtasks for all categories
-        common_subtasks = [
-            "Schedule inspection",
-            "Contact tenant to confirm repair details",
-            "Assign maintenance personnel",
-            "Follow up with tenant after repair",
-            "Mark as resolved and update records"
-        ]
-        
-        # Add category-specific subtasks
-        if issue_category == "Plumbing":
-            subtasks = ["Assess plumbing issue", "Contact plumber if needed"] + common_subtasks
-        elif issue_category == "Electrical":
-            subtasks = ["Safety assessment", "Contact electrician if needed"] + common_subtasks
-        elif issue_category == "Appliance":
-            subtasks = ["Identify appliance make/model", "Check warranty status", "Contact repair service"] + common_subtasks
-        elif issue_category == "HVAC":
-            subtasks = ["Verify system status", "Contact HVAC technician"] + common_subtasks
-        elif issue_category == "Structural":
-            subtasks = ["Assess urgency and safety impact", "Document with photos", "Get contractor estimates"] + common_subtasks
-        else:  # Default/Other
-            subtasks = ["Determine repair category", "Assess issue"] + common_subtasks
-        
-        # Create each subtask
-        for subtask_name in subtasks:
-            client.tasks.create_subtask_for_task(task_gid, {'name': subtask_name})
-            
-        logger.info(f"Created {len(subtasks)} subtasks for task {task_gid}")
-        return True
-    except Exception as e:
-        logger.error(f"Error creating subtasks: {e}")
-        return False
-
 def is_repair_form_task(task):
     """Check if a task was created from the repair request form"""
     try:
         # Check if the task is in the repair project
         for project in task.get('projects', []):
-            if project['gid'] == REPAIR_PROJECT_ID:
+            if project['gid'] == 1209602262926911:
                 return True
         return False
     except Exception as e:
         logger.error(f"Error checking if task is from repair form: {e}")
-        return False
-
-def get_task_field_value(task, field_name):
-    """Extract a custom field value from a task"""
-    try:
-        if 'custom_fields' not in task:
-            return None
-            
-        for field in task['custom_fields']:
-            if field['name'] == field_name:
-                if field['type'] == 'text':
-                    return field.get('text_value')
-                elif field['type'] == 'enum':
-                    if field.get('enum_value'):
-                        return field['enum_value']['name']
-                elif field['type'] == 'number':
-                    return field.get('number_value')
-                else:
-                    return None
-        return None
-    except Exception as e:
-        logger.error(f"Error getting field value: {e}")
-        return None
-
-def process_repair_request(task):
-    """Process a new repair request task"""
-    try:
-        # Get full task details
-        task_gid = task['gid']
-        task_details = client.tasks.find_by_id(task_gid)
-        
-        # Extract form field values
-        tenant_name = get_task_field_value(task_details, 'Tenant Name') or 'Unknown Tenant'
-        property_address = get_task_field_value(task_details, 'Property/Unit Address') or 'Unknown Address'
-        issue_category = get_task_field_value(task_details, 'Issue Category') or 'Other'
-        urgency = get_task_field_value(task_details, 'Urgency Level') or 'Standard'
-        description = task_details.get('notes', 'No description provided')
-        
-        # Create subtasks based on the issue category
-        create_category_subtasks(task_gid, issue_category)
-        
-        # Send email notification
-        send_email_notification(tenant_name, property_address, issue_category, urgency, description, task_gid)
-        
-        logger.info(f"Successfully processed repair request: {task_gid}")
-        return True
-    except Exception as e:
-        logger.error(f"Error processing repair request: {e}")
-        return False
-
-def send_email_notification(tenant_name, property_address, issue_category, urgency, description, task_gid):
-    """Send a formatted email notification about the repair request"""
-    try:
-        # Get emoji for issue category
-        category_emoji = {
-            'Plumbing': '🚿',
-            'Electrical': '⚡',
-            'Appliance': '🔌',
-            'HVAC': '❄️',
-            'Structural': '🏠',
-            'Other': '🔧'
-        }.get(issue_category, '🔧')
-        
-        # Get emoji for urgency
-        urgency_emoji = {
-            'Emergency': '🚨',
-            'Urgent': '⚠️',
-            'Standard': '📝'
-        }.get(urgency, '📝')
-        
-        # Create email subject
-        subject = f"{urgency_emoji} {issue_category} Repair Needed at {property_address}"
-        
-        # Create email body
-        body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>{category_emoji} New Repair Request {category_emoji}</h2>
-            
-            <p><strong>Property:</strong> {property_address}</p>
-            <p><strong>Tenant:</strong> {tenant_name}</p>
-            <p><strong>Issue Type:</strong> {category_emoji} {issue_category}</p>
-            <p><strong>Urgency:</strong> {urgency_emoji} {urgency}</p>
-            
-            <div style="background-color: #f5f5f5; padding: 15px; border-left: 4px solid #0073ea;">
-                <h3>Description:</h3>
-                <p>{description}</p>
-            </div>
-            
-            <p style="margin-top: 20px;">Please log into Asana to view and manage this task.</p>
-            <p>Task Link: <a href="https://app.asana.com/0/{REPAIR_PROJECT_ID}/{task_gid}">View Task in Asana</a></p>
-            
-            <p style="color: #666; font-size: 12px;">This email was automatically generated by the Property Management Repair System.</p>
-        </body>
-        </html>
-        """
-        
-        # Skip actual email sending if credentials not set (for testing)
-        if not EMAIL_USER or not EMAIL_PASSWORD:
-            logger.warning("Email credentials not set, skipping email send")
-            return True
-        
-        # Setup email
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = EMAIL_USER
-        msg['To'] = EMAIL_DISTRIBUTION_LIST
-        
-        html_part = MIMEText(body, 'html')
-        msg.attach(html_part)
-        
-        # Send email
-        server = smtplib.SMTP(EMAIL_SERVER, EMAIL_PORT)
-        server.starttls()
-        server.login(EMAIL_USER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        logger.info(f"Email notification sent for task {task_gid}")
-        return True
-    except Exception as e:
-        logger.error(f"Error sending email notification: {e}")
         return False
 
 @app.route('/webhook', methods=['POST'])
@@ -252,7 +57,7 @@ def setup():
     """Setup endpoint to initialize the webhook"""
     try:
         # Register the webhook for the repair project
-        webhook_url = "https://asanaconnector3claude-production.up.railway.app/webhook"
+        webhook_url = request.url_root.rstrip('/') + "/webhook"
         
         # Register the webhook
         webhook = client.webhooks.create({
@@ -278,17 +83,29 @@ def setup():
 def test_email():
     """Test the email notification system"""
     try:
-        send_email_notification(
-            "Test Tenant", 
-            "123 Test Street", 
-            "Plumbing", 
-            "Standard", 
-            "This is a test description for the repair request.",
-            "12345"
-        )
+        # Create a sample repair request details dictionary
+        test_details = {
+            'first_name': 'Test',
+            'last_name': 'Tenant',
+            'email': 'test@example.com',
+            'phone': '(555) 123-4567',
+            'address': '123 Test Street',
+            'unit_number': 'Apt 4B',
+            'urgency_level': 'Standard',
+            'issue_category': 'Plumbing',
+            'specific_issue': 'Leaky faucet',
+            'description': 'This is a test description for the repair request system.'
+        }
+        
+        # Simulate a fake task GID for testing
+        test_task_gid = 'test_task_12345'
+        
+        # Send test email
+        send_email_notification(test_details, test_task_gid)
+        
         return jsonify({
             "status": "success", 
-            "message": "Test email sent"
+            "message": "Test email sent successfully"
         }), 200
     except Exception as e:
         logger.error(f"Error sending test email: {e}")
@@ -300,7 +117,10 @@ def test_email():
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
-    return jsonify({"status": "healthy"}), 200
+    return jsonify({
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat()
+    }), 200
 
 @app.route('/process-task/<task_gid>', methods=['GET'])
 def process_specific_task(task_gid):
@@ -350,7 +170,13 @@ def manual_trigger():
                     padding: 10px 20px; 
                     text-decoration: none; 
                     border-radius: 4px; 
-                    margin-top: 20px; 
+                    margin: 10px; 
+                    text-align: center;
+                }
+                .grid { 
+                    display: flex; 
+                    flex-wrap: wrap; 
+                    justify-content: center; 
                 }
             </style>
         </head>
@@ -359,19 +185,11 @@ def manual_trigger():
                 <h1>🔧 Property Repair Management</h1>
                 <p>Use this page to manually trigger actions for the repair management system.</p>
                 
-                <h2>Manual Actions:</h2>
-                
-                <p>
+                <div class="grid">
                     <a href="/process-recent" class="button">Process Recent Repair Requests</a>
-                </p>
-                
-                <p>
                     <a href="/test-email" class="button">Send Test Email</a>
-                </p>
-                
-                <p>
                     <a href="/setup" class="button">Setup/Reset Webhook</a>
-                </p>
+                </div>
                 
                 <hr>
                 <p>Current time: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
@@ -391,7 +209,7 @@ def process_recent():
         # Get tasks created in the last 24 hours
         tasks = client.tasks.find_all({
             'project': REPAIR_PROJECT_ID,
-            'modified_since': (datetime.now() - datetime.timedelta(days=1)).isoformat()
+            'modified_since': (datetime.now() - timedelta(days=1)).isoformat()
         })
         
         processed_count = 0
@@ -436,5 +254,6 @@ def process_recent():
         logger.error(f"Error processing recent tasks: {e}")
         return f"Error processing recent tasks: {str(e)}", 500
 
+# Main application runner
 if __name__ == '__main__':
     app.run(debug=True)
