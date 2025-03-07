@@ -418,8 +418,8 @@ def handle_webhook():
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # Register the webhook for the repair project
-        webhook_url = request.url_root.rstrip('/') + "/webhook"
+        # Explicitly define the full webhook URL
+        webhook_url = f"https://{request.host}/webhook"
         
         # Register the webhook
         webhook = client.webhooks.create({
@@ -440,7 +440,7 @@ def setup():
             "status": "error", 
             "message": f"Failed to setup: {str(e)}"
         }), 500
-
+        
 @app.route('/test-email', methods=['GET'])
 def test_email():
     """Test the email notification system"""
