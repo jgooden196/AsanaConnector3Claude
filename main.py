@@ -378,36 +378,37 @@ def handle_webhook():
     # Check if this is the webhook handshake request
     if 'X-Hook-Secret' in request.headers:
         secret = request.headers['X-Hook-Secret']
-        WEBHOOK_SECRET['secret'] = secret  # Store secret dynamically
         
-        response = jsonify({})
-        response.headers['X-Hook-Secret'] = secret  # Send back the secret
-         
+        # Store the secret (you might want to persist this securely)
+        WEBHOOK_SECRET['secret'] = secret
+        
+        # Respond with the same X-Hook-Secret to confirm
+        response = make_response('', 200)
+        response.headers['X-Hook-Secret'] = secret
+        
         logger.info(f"Webhook Handshake Successful. Secret: {secret}")
-        return response, 200
+        return response
     
-    # If it's not a handshake, it's an event
+    # Handle regular webhook events
     try:
         data = request.json
         logger.info(f"Received Asana Event: {data}")
+        
+        # Verify the webhook signature if possible
+        # (You'd need to implement HMAC verification here)
         
         # Process events
         events = data.get('events', [])
         
         for event in events:
-            # Check if this is a new task added to the repair project
+            # Process individual events
             if event.get('action') == 'added' and event.get('resource', {}).get('resource_type') == 'task':
-                # Get the task details
                 task_gid = event.get('resource', {}).get('gid')
-                if not task_gid:
-                    continue
+                if task_gid:
+                    task = client.tasks.find_by_id(task_gid)
                     
-                task = client.tasks.find_by_id(task_gid)
-                
-                # Check if this task was created from the repair form
-                if is_repair_form_task(task):
-                    # Process this new repair request
-                    process_repair_request(task)
+                    if is_repair_form_task(task):
+                        process_repair_request(task)
         
         return jsonify({"status": "received"}), 200
     except Exception as e:
@@ -418,7 +419,7 @@ def handle_webhook():
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # Explicitly define the full webhook URL
+        # Use the full HTTPS URL
         webhook_url = f"https://{request.host}/webhook"
         
         # Register the webhook
@@ -430,12 +431,12 @@ def setup():
         logger.info(f"Webhook registered: {webhook['gid']}")
         return jsonify({
             "status": "success", 
-            "message": f"Webhook registered for repair project",
+            "message": "Webhook registered for repair project",
             "webhook_gid": webhook['gid'],
             "target_url": webhook_url
         }), 200
     except Exception as e:
-        logger.error(f"Error setting up: {e}")
+        logger.error(f"Error setting up webhook: {e}")
         return jsonify({
             "status": "error", 
             "message": f"Failed to setup: {str(e)}"
