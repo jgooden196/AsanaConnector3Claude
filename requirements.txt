@@ -1,7 +1,5 @@
 Flask==2.0.1
-Werkzeug==2.0.1
 gunicorn==20.1.0
-asana==0.10.3
-validators
+Werkzeug==2.0.1
+asana==5.0.10
 requests
-urllib3
