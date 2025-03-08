@@ -4,7 +4,7 @@ import sys
 import smtplib
 import hmac
 import hashlib
-import asana  # Updated import
+from asana import client
 from asana.rest import ApiException
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -42,7 +42,7 @@ EMAIL_CONFIG = {
 }
 
 # Asana API setup
-client = asana.Client.access_token(ASANA_TOKEN)
+client = client.Client.access_token(ASANA_TOKEN)
 # Repair Categories Configuration
 REPAIR_CATEGORIES = {
     'Appliance': {
