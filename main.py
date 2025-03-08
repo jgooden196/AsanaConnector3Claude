@@ -404,33 +404,36 @@ def handle_webhook():
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # More verbose logging
-        import socket
         import requests
+        from requests.adapters import HTTPAdapter
+        from requests.packages.urllib3.util.retry import Retry
 
-        # Verify network connectivity
-        try:
-            socket.create_connection(("app.asana.com", 443), timeout=5)
-            logger.info("Network connectivity to Asana: OK")
-        except Exception as conn_error:
-            logger.error(f"Network connectivity error: {conn_error}")
-            return jsonify({
-                "status": "error",
-                "message": f"Network connectivity issue: {conn_error}"
-            }), 500
+        # Configure robust retry strategy
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            backoff_factor=1
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        http = requests.Session()
+        http.mount("https://", adapter)
 
-        # Additional URL validation
         webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
         
-        # Try a quick connectivity test
+        # Extended timeout and more robust connection test
         try:
-            response = requests.get(webhook_url, timeout=5)
+            response = http.get(webhook_url, timeout=(10, 15))
             logger.info(f"Webhook URL test - Status Code: {response.status_code}")
+            logger.info(f"Webhook URL test - Response: {response.text}")
         except Exception as url_error:
-            logger.error(f"Webhook URL connectivity error: {url_error}")
+            logger.error(f"Comprehensive Webhook URL connectivity error: {url_error}")
+            import traceback
+            logger.error(traceback.format_exc())
             return jsonify({
                 "status": "error",
-                "message": f"Webhook URL connectivity issue: {url_error}"
+                "message": f"Webhook URL connectivity issue: {url_error}",
+                "error_details": str(traceback.format_exc())
             }), 500
 
         logger.info(f"Attempting to register webhook")
@@ -442,7 +445,7 @@ def setup():
             webhook = client.webhooks.create({
                 'resource': REPAIR_PROJECT_ID,
                 'target': webhook_url
-            }, opt_timeout=20)  # Increase timeout to 20 seconds
+            }, opt_timeout=30)  # Increase timeout to 30 seconds
         except Exception as create_error:
             logger.error(f"Detailed Webhook creation error: {create_error}")
             import traceback
