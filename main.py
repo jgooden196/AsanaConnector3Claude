@@ -383,19 +383,16 @@ def handle_webhook():
         WEBHOOK_SECRET['secret'] = secret
         
         # Respond with the same X-Hook-Secret to confirm
-        response = make_response('', 200)
+        response = jsonify({})
         response.headers['X-Hook-Secret'] = secret
         
         logger.info(f"Webhook Handshake Successful. Secret: {secret}")
-        return response
+        return response, 200
     
     # Handle regular webhook events
     try:
         data = request.json
         logger.info(f"Received Asana Event: {data}")
-        
-        # Verify the webhook signature if possible
-        # (You'd need to implement HMAC verification here)
         
         # Process events
         events = data.get('events', [])
