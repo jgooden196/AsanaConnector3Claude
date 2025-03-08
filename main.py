@@ -416,14 +416,26 @@ def handle_webhook():
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # Use the full HTTPS URL
-        webhook_url = f"https://{request.host}/webhook"
+        # Log all relevant details for debugging
+        logger.info(f"Attempting to register webhook")
+        logger.info(f"Asana Token: {bool(ASANA_TOKEN)}...")  # Log if token exists
+        logger.info(f"Repair Project ID: {REPAIR_PROJECT_ID}")
         
-        # Register the webhook
-        webhook = client.webhooks.create({
-            'resource': REPAIR_PROJECT_ID,
-            'target': webhook_url
-        })
+        webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
+        logger.info(f"Webhook URL: {webhook_url}")
+        
+        # Register the webhook with more error details
+        try:
+            webhook = client.webhooks.create({
+                'resource': REPAIR_PROJECT_ID,
+                'target': webhook_url
+            })
+        except Exception as create_error:
+            logger.error(f"Detailed webhook creation error: {create_error}")
+            # If possible, log the full error details
+            import traceback
+            logger.error(traceback.format_exc())
+            raise
         
         logger.info(f"Webhook registered: {webhook['gid']}")
         return jsonify({
