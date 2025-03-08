@@ -4,12 +4,11 @@ import sys
 import smtplib
 import hmac
 import hashlib
-import asana
+from asana import client as asana_client  # Updated import
 from asana.rest import ApiException
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import Flask, request, jsonify
-from asana import Client
 from datetime import datetime, timedelta
 
 # Create Flask app BEFORE defining routes
@@ -43,7 +42,7 @@ EMAIL_CONFIG = {
 }
 
 # Asana API setup
-client = Client.access_token(ASANA_TOKEN)
+client = asana_client.Client.access_token(ASANA_TOKEN)
 
 # Repair Categories Configuration
 REPAIR_CATEGORIES = {
@@ -221,7 +220,8 @@ def send_email_notification(request_details, task_gid):
         # Create email subject
         subject = f"{urgency_emoji} {category_emoji} Repair Request - {request_details.get('issue_category', 'Maintenance')} Issue"
         
-        # Create email body with enhanced formatting
+        # Create email body with enhanced formatting (previous email body code remains the same)
+        # ... (paste the full email body HTML from the previous implementation)
         body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
