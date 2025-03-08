@@ -42,8 +42,7 @@ EMAIL_CONFIG = {
 }
 
 # Asana API setup
-client = asana_client.Client.access_token(ASANA_TOKEN)
-
+client = asana.Client.access_token(ASANA_TOKEN)
 # Repair Categories Configuration
 REPAIR_CATEGORIES = {
     'Appliance': {
