@@ -4,7 +4,7 @@ import sys
 import smtplib
 import hmac
 import hashlib
-from asana import client as asana_client  # Updated import
+import asana  # Updated import
 from asana.rest import ApiException
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -457,10 +457,10 @@ def setup():
     """Setup endpoint to initialize the webhook"""
     try:
         # Configure Asana client
-        configuration = asana.Configuration()
+        configuration = asana.Configuration()  # Changed from asana_client.Configuration()
         configuration.access_token = ASANA_TOKEN
-        api_client = asana.ApiClient(configuration)
-        webhooks_api_instance = asana.WebhooksApi(api_client)
+        api_client = asana.ApiClient(configuration)  # Changed from asana_client.ApiClient()
+        webhooks_api_instance = asana.WebhooksApi(api_client)  # Changed from asana_client.WebhooksApi()
         
         # Webhook URL
         webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
