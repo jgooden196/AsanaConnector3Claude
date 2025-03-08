@@ -372,66 +372,59 @@ def is_repair_form_task(task):
         logger.error(f"Error checking if task is from repair form: {e}")
         return False
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def handle_webhook():
     """Handles incoming webhook requests from Asana"""
-    # Log every incoming request immediately
-    logger.info(f"Webhook request received - Method: {request.method}, Headers: {request.headers}")
+    # Log every single incoming request with full details
+    logger.info(f"Webhook request received")
+    logger.info(f"Method: {request.method}")
+    logger.info(f"Headers: {dict(request.headers)}")
     
-    # Check if this is the webhook handshake request
+    # For GET requests (debugging)
+    if request.method == 'GET':
+        return "Webhook Endpoint is Accessible", 200
+    
+    # For POST requests
     if 'X-Hook-Secret' in request.headers:
         secret = request.headers['X-Hook-Secret']
         
-        # Log the secret for debugging
         logger.info(f"Handshake Secret Received: {secret}")
         
-        # Store the secret (you might want to persist this securely)
-        WEBHOOK_SECRET['secret'] = secret
-        
-        # Respond with the same X-Hook-Secret to confirm
-        response = jsonify({})
+        # Minimal response
+        response = make_response('', 200)
         response.headers['X-Hook-Secret'] = secret
         
-        logger.info("Webhook Handshake Response Sent")
-        return response, 200
+        return response
     
-    # Immediately respond for regular requests to reduce timeout risk
-    if request.method == 'POST':
-        # Log the basic event details quickly
-        try:
-            data = request.json
-            logger.info(f"Received webhook event - Basic info logged")
-            
-            # Minimal processing to avoid timeout
-            events = data.get('events', [])
-            logger.info(f"Number of events received: {len(events)}")
-            
-            return jsonify({"status": "received"}), 200
-        except Exception as e:
-            logger.error(f"Quick webhook processing error: {e}")
-            return jsonify({"status": "error", "message": str(e)}), 500
-    
-    return jsonify({"status": "unsupported"}), 405
-
+    # Basic POST handling
+    return jsonify({"status": "received"}), 200
 
 
 @app.route('/setup', methods=['GET'])
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # Explicitly define the full webhook URL with HTTPS
+        # Explicitly verify HTTPS
         webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
+        
+        # Validate URL
+        import validators
+        if not validators.url(webhook_url):
+            logger.error(f"Invalid webhook URL: {webhook_url}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid webhook URL"
+            }), 400
         
         logger.info(f"Attempting to register webhook")
         logger.info(f"Webhook URL: {webhook_url}")
         logger.info(f"Project ID: {REPAIR_PROJECT_ID}")
         
-        # Add a timeout parameter to the webhook creation
         try:
             webhook = client.webhooks.create({
                 'resource': REPAIR_PROJECT_ID,
                 'target': webhook_url
-            }, opt_timeout=15)  # Increase timeout to 15 seconds
+            })
         except Exception as create_error:
             logger.error(f"Webhook creation error: {create_error}")
             import traceback
