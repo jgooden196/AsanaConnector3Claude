@@ -375,9 +375,15 @@ def is_repair_form_task(task):
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     """Handles incoming webhook requests from Asana"""
+    # Log every incoming request immediately
+    logger.info(f"Webhook request received - Method: {request.method}, Headers: {request.headers}")
+    
     # Check if this is the webhook handshake request
     if 'X-Hook-Secret' in request.headers:
         secret = request.headers['X-Hook-Secret']
+        
+        # Log the secret for debugging
+        logger.info(f"Handshake Secret Received: {secret}")
         
         # Store the secret (you might want to persist this securely)
         WEBHOOK_SECRET['secret'] = secret
@@ -386,58 +392,57 @@ def handle_webhook():
         response = jsonify({})
         response.headers['X-Hook-Secret'] = secret
         
-        logger.info(f"Webhook Handshake Successful. Secret: {secret}")
+        logger.info("Webhook Handshake Response Sent")
         return response, 200
     
-    # Handle regular webhook events
-    try:
-        data = request.json
-        logger.info(f"Received Asana Event: {data}")
-        
-        # Process events
-        events = data.get('events', [])
-        
-        for event in events:
-            # Process individual events
-            if event.get('action') == 'added' and event.get('resource', {}).get('resource_type') == 'task':
-                task_gid = event.get('resource', {}).get('gid')
-                if task_gid:
-                    task = client.tasks.find_by_id(task_gid)
-                    
-                    if is_repair_form_task(task):
-                        process_repair_request(task)
-        
-        return jsonify({"status": "received"}), 200
-    except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    # Immediately respond for regular requests to reduce timeout risk
+    if request.method == 'POST':
+        # Log the basic event details quickly
+        try:
+            data = request.json
+            logger.info(f"Received webhook event - Basic info logged")
+            
+            # Minimal processing to avoid timeout
+            events = data.get('events', [])
+            logger.info(f"Number of events received: {len(events)}")
+            
+            return jsonify({"status": "received"}), 200
+        except Exception as e:
+            logger.error(f"Quick webhook processing error: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+    
+    return jsonify({"status": "unsupported"}), 405
+
+
 
 @app.route('/setup', methods=['GET'])
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # Log all relevant details for debugging
-        logger.info(f"Attempting to register webhook")
-        logger.info(f"Asana Token: {bool(ASANA_TOKEN)}...")  # Log if token exists
-        logger.info(f"Repair Project ID: {REPAIR_PROJECT_ID}")
-        
+        # Explicitly define the full webhook URL with HTTPS
         webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
-        logger.info(f"Webhook URL: {webhook_url}")
         
-        # Register the webhook with more error details
+        logger.info(f"Attempting to register webhook")
+        logger.info(f"Webhook URL: {webhook_url}")
+        logger.info(f"Project ID: {REPAIR_PROJECT_ID}")
+        
+        # Add a timeout parameter to the webhook creation
         try:
             webhook = client.webhooks.create({
                 'resource': REPAIR_PROJECT_ID,
                 'target': webhook_url
-            })
+            }, opt_timeout=15)  # Increase timeout to 15 seconds
         except Exception as create_error:
-            logger.error(f"Detailed webhook creation error: {create_error}")
-            # If possible, log the full error details
+            logger.error(f"Webhook creation error: {create_error}")
             import traceback
             logger.error(traceback.format_exc())
-            raise
+            
+            return jsonify({
+                "status": "error", 
+                "message": f"Webhook creation failed: {str(create_error)}"
+            }), 500
         
-        logger.info(f"Webhook registered: {webhook['gid']}")
+        logger.info(f"Webhook registered successfully: {webhook['gid']}")
         return jsonify({
             "status": "success", 
             "message": "Webhook registered for repair project",
@@ -445,10 +450,10 @@ def setup():
             "target_url": webhook_url
         }), 200
     except Exception as e:
-        logger.error(f"Error setting up webhook: {e}")
+        logger.error(f"Unexpected error in webhook setup: {e}")
         return jsonify({
             "status": "error", 
-            "message": f"Failed to setup: {str(e)}"
+            "message": f"Unexpected error: {str(e)}"
         }), 500
         
 @app.route('/test-email', methods=['GET'])
