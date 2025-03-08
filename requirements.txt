@@ -3,3 +3,5 @@ Werkzeug==2.0.1
 gunicorn==20.1.0
 asana==0.10.3
 validators
+requests
+urllib3
