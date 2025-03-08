@@ -404,35 +404,55 @@ def handle_webhook():
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        # Explicitly verify HTTPS
-        webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
-        
-        # Validate URL
-        import validators
-        if not validators.url(webhook_url):
-            logger.error(f"Invalid webhook URL: {webhook_url}")
+        # More verbose logging
+        import socket
+        import requests
+
+        # Verify network connectivity
+        try:
+            socket.create_connection(("app.asana.com", 443), timeout=5)
+            logger.info("Network connectivity to Asana: OK")
+        except Exception as conn_error:
+            logger.error(f"Network connectivity error: {conn_error}")
             return jsonify({
                 "status": "error",
-                "message": "Invalid webhook URL"
-            }), 400
+                "message": f"Network connectivity issue: {conn_error}"
+            }), 500
+
+        # Additional URL validation
+        webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
         
+        # Try a quick connectivity test
+        try:
+            response = requests.get(webhook_url, timeout=5)
+            logger.info(f"Webhook URL test - Status Code: {response.status_code}")
+        except Exception as url_error:
+            logger.error(f"Webhook URL connectivity error: {url_error}")
+            return jsonify({
+                "status": "error",
+                "message": f"Webhook URL connectivity issue: {url_error}"
+            }), 500
+
         logger.info(f"Attempting to register webhook")
         logger.info(f"Webhook URL: {webhook_url}")
         logger.info(f"Project ID: {REPAIR_PROJECT_ID}")
         
         try:
+            # Increase timeout and add more detailed error handling
             webhook = client.webhooks.create({
                 'resource': REPAIR_PROJECT_ID,
                 'target': webhook_url
-            })
+            }, opt_timeout=20)  # Increase timeout to 20 seconds
         except Exception as create_error:
-            logger.error(f"Webhook creation error: {create_error}")
+            logger.error(f"Detailed Webhook creation error: {create_error}")
             import traceback
-            logger.error(traceback.format_exc())
+            error_details = traceback.format_exc()
+            logger.error(error_details)
             
             return jsonify({
                 "status": "error", 
-                "message": f"Webhook creation failed: {str(create_error)}"
+                "message": f"Webhook creation failed: {str(create_error)}",
+                "error_details": error_details
             }), 500
         
         logger.info(f"Webhook registered successfully: {webhook['gid']}")
@@ -444,9 +464,13 @@ def setup():
         }), 200
     except Exception as e:
         logger.error(f"Unexpected error in webhook setup: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(error_details)
         return jsonify({
             "status": "error", 
-            "message": f"Unexpected error: {str(e)}"
+            "message": f"Unexpected error: {str(e)}",
+            "error_details": error_details
         }), 500
         
 @app.route('/test-email', methods=['GET'])
