@@ -2,6 +2,10 @@ import os
 import logging
 import sys
 import smtplib
+import hmac
+import hashlib
+import asana
+from asana.rest import ApiException
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import Flask, request, jsonify
@@ -353,6 +357,10 @@ def process_repair_request(task):
         )
         
         # Send email notification with comprehensive details
+        sen
+
+
+# Send email notification with comprehensive details
         send_email_notification(full_request_details, task_gid)
         
         return True
@@ -375,107 +383,132 @@ def is_repair_form_task(task):
 @app.route('/webhook', methods=['POST', 'GET'])
 def handle_webhook():
     """Handles incoming webhook requests from Asana"""
-    # Log every single incoming request with full details
-    logger.info(f"Webhook request received")
-    logger.info(f"Method: {request.method}")
+    # Logging for all incoming requests
+    logger.info(f"Webhook request received - Method: {request.method}")
     logger.info(f"Headers: {dict(request.headers)}")
     
-    # For GET requests (debugging)
+    # GET request handling (for debugging)
     if request.method == 'GET':
         return "Webhook Endpoint is Accessible", 200
     
-    # For POST requests
+    # Handshake handling
     if 'X-Hook-Secret' in request.headers:
         secret = request.headers['X-Hook-Secret']
         
-        logger.info(f"Handshake Secret Received: {secret}")
+        # Store the secret
+        WEBHOOK_SECRET['secret'] = secret
         
-        # Minimal response
-        response = make_response('', 200)
+        # Respond with the same secret
+        response = jsonify({})
         response.headers['X-Hook-Secret'] = secret
-        
-        return response
+        logger.info("Webhook handshake completed")
+        return response, 200
     
-    # Basic POST handling
-    return jsonify({"status": "received"}), 200
-
+    # Event verification for regular webhook events
+    if request.method == 'POST':
+        # Verify signature if X-Hook-Signature is present
+        if 'X-Hook-Signature' in request.headers:
+            # Retrieve stored secret
+            stored_secret = WEBHOOK_SECRET.get('secret', '')
+            if not stored_secret:
+                logger.error("No stored webhook secret")
+                return '', 401
+            
+            # Compute HMAC signature
+            computed_signature = hmac.new(
+                key=stored_secret.encode(),
+                msg=request.data,
+                digestmod=hashlib.sha256
+            ).hexdigest()
+            
+            # Constant-time comparison
+            if not hmac.compare_digest(request.headers['X-Hook-Signature'], computed_signature):
+                logger.error("Signature verification failed")
+                return '', 401
+        
+        # Process webhook events
+        try:
+            data = request.json
+            events = data.get('events', [])
+            
+            for event in events:
+                # Check for task-related events
+                if (event.get('action') == 'added' and 
+                    event.get('resource', {}).get('resource_type') == 'task'):
+                    
+                    task_gid = event.get('resource', {}).get('gid')
+                    if task_gid:
+                        task = client.tasks.find_by_id(task_gid)
+                        
+                        if is_repair_form_task(task):
+                            process_repair_request(task)
+            
+            return '', 200
+        
+        except Exception as e:
+            logger.error(f"Error processing webhook events: {e}")
+            return '', 500
+    
+    # Catch-all for unsupported methods
+    return 'Method Not Allowed', 405
 
 @app.route('/setup', methods=['GET'])
 def setup():
     """Setup endpoint to initialize the webhook"""
     try:
-        import requests
-        from requests.adapters import HTTPAdapter
-        from requests.packages.urllib3.util.retry import Retry
-
-        # Configure robust retry strategy
-        retry_strategy = Retry(
-            total=3,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"],
-            backoff_factor=1
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        http = requests.Session()
-        http.mount("https://", adapter)
-
+        # Configure Asana client
+        configuration = asana.Configuration()
+        configuration.access_token = ASANA_TOKEN
+        api_client = asana.ApiClient(configuration)
+        webhooks_api_instance = asana.WebhooksApi(api_client)
+        
+        # Webhook URL
         webhook_url = f"https://asanaconnector3claude-production.up.railway.app/webhook"
         
-        # Extended timeout and more robust connection test
-        try:
-            response = http.get(webhook_url, timeout=(10, 15))
-            logger.info(f"Webhook URL test - Status Code: {response.status_code}")
-            logger.info(f"Webhook URL test - Response: {response.text}")
-        except Exception as url_error:
-            logger.error(f"Comprehensive Webhook URL connectivity error: {url_error}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return jsonify({
-                "status": "error",
-                "message": f"Webhook URL connectivity issue: {url_error}",
-                "error_details": str(traceback.format_exc())
-            }), 500
-
-        logger.info(f"Attempting to register webhook")
-        logger.info(f"Webhook URL: {webhook_url}")
-        logger.info(f"Project ID: {REPAIR_PROJECT_ID}")
+        # Prepare webhook creation body
+        body = {
+            "data": {
+                "resource": REPAIR_PROJECT_ID,
+                "target": webhook_url,
+                "filters": [
+                    {
+                        "action": "added",
+                        "resource_type": "task"
+                    }
+                ]
+            }
+        }
         
         try:
-            # Increase timeout and add more detailed error handling
-            webhook = client.webhooks.create({
-                'resource': REPAIR_PROJECT_ID,
-                'target': webhook_url
-            }, opt_timeout=30)  # Increase timeout to 30 seconds
-        except Exception as create_error:
-            logger.error(f"Detailed Webhook creation error: {create_error}")
-            import traceback
-            error_details = traceback.format_exc()
-            logger.error(error_details)
+            # Create webhook
+            api_response = webhooks_api_instance.create_webhook(body)
+            
+            # Log webhook details
+            logger.info(f"Webhook registered successfully")
+            logger.info(f"Webhook GID: {api_response.data.gid}")
+            logger.info(f"Target URL: {webhook_url}")
             
             return jsonify({
-                "status": "error", 
-                "message": f"Webhook creation failed: {str(create_error)}",
-                "error_details": error_details
-            }), 500
+                "status": "success", 
+                "message": "Webhook registered for repair project",
+                "webhook_gid": api_response.data.gid,
+                "target_url": webhook_url
+            }), 200
         
-        logger.info(f"Webhook registered successfully: {webhook['gid']}")
-        return jsonify({
-            "status": "success", 
-            "message": "Webhook registered for repair project",
-            "webhook_gid": webhook['gid'],
-            "target_url": webhook_url
-        }), 200
+        except ApiException as e:
+            logger.error(f"Exception when calling WebhooksApi->create_webhook: {e}")
+            return jsonify({
+                "status": "error", 
+                "message": f"Webhook creation failed: {str(e)}"
+            }), 500
+    
     except Exception as e:
         logger.error(f"Unexpected error in webhook setup: {e}")
-        import traceback
-        error_details = traceback.format_exc()
-        logger.error(error_details)
         return jsonify({
             "status": "error", 
-            "message": f"Unexpected error: {str(e)}",
-            "error_details": error_details
+            "message": f"Unexpected error: {str(e)}"
         }), 500
-        
+
 @app.route('/test-email', methods=['GET'])
 def test_email():
     """Test the email notification system"""
