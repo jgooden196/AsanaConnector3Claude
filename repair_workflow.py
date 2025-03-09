@@ -4,7 +4,7 @@ import sys
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from asana import client
+import asana
 from asana.rest import ApiException
 from datetime import datetime, timedelta
 
@@ -34,7 +34,7 @@ EMAIL_CONFIG = {
 }
 
 # Asana API setup
-client = client.Client.access_token(ASANA_TOKEN)
+client = asana.Client.access_token(ASANA_TOKEN)
 
 # Repair Categories Configuration
 REPAIR_CATEGORIES = {
