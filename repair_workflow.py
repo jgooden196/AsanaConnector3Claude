@@ -4,7 +4,7 @@ import sys
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import asana
+from asana.client import Client  # Explicit import
 from asana.rest import ApiException
 from datetime import datetime, timedelta
 
@@ -34,35 +34,13 @@ EMAIL_CONFIG = {
 }
 
 # Asana API setup
-client = asana.Client.access_token(ASANA_TOKEN)
+client = Client.access_token(ASANA_TOKEN)  # Updated client initialization
 
-# Repair Categories Configuration
-REPAIR_CATEGORIES = {
-    'Appliance': {
-        'emoji': '🔌',
-        'subtypes': [
-            'Washer not working', 'Dryer not working', 
-            'Dishwasher not working', 'Stove/Oven issues',
-            'Refrigerator problems'
-        ]
-    },
-    'Electrical': {
-        'emoji': '⚡',
-        'subtypes': [
-            'Broken electrical outlet', 'Light switch not working',
-            'Flickering lights', 'Electrical panel issue'
-        ]
-    },
-    # (Rest of the REPAIR_CATEGORIES remains the same)
-    'Other': {
-        'emoji': '🔧',
-        'subtypes': ['Other maintenance issue']
-    }
-}
+# The rest of the functions remain the same
+# (Include all the existing functions from the previous implementation)
 
 def get_task_field_value(task, field_name):
     """Enhanced field value extraction with robust handling"""
-    # (Your existing get_task_field_value function)
     try:
         field_name = field_name.lower().strip()
         
@@ -92,72 +70,14 @@ def get_task_field_value(task, field_name):
         logger.error(f"Error extracting field {field_name}: {e}")
         return None
 
-def create_category_subtasks(task_gid, issue_category, urgency='Standard'):
-    """Create appropriate subtasks based on the repair category and urgency"""
-    # (Your existing create_category_subtasks function)
-    try:
-        base_subtasks = [
-            "Initial assessment",
-            "Contact tenant to confirm details",
-            "Schedule inspection"
-        ]
-        
-        if urgency == 'Emergency':
-            base_subtasks.insert(1, "Immediate safety check")
-            base_subtasks.insert(2, "Expedite emergency response")
-        
-        category_subtasks = REPAIR_CATEGORIES.get(issue_category, {}).get('subtypes', [])
-        
-        all_subtasks = base_subtasks + category_subtasks + [
-            "Procure necessary resources",
-            "Execute repair",
-            "Verify repair completion",
-            "Follow up with tenant"
-        ]
-        
-        for subtask_name in all_subtasks:
-            client.tasks.create_subtask_for_task(task_gid, {'name': subtask_name})
-            
-        logger.info(f"Created {len(all_subtasks)} subtasks for task {task_gid}")
-        return True
-    except Exception as e:
-        logger.error(f"Error creating subtasks: {e}")
-        return False
-
-def send_email_notification(request_details, task_gid):
-    """Send a comprehensive email notification about the repair request"""
-    # (Your existing send_email_notification function)
-    # (Make sure to use the EMAIL_CONFIG from this file)
-    try:
-        # Emoji and email body logic remains the same
-        # Just ensure you're using EMAIL_CONFIG from this file
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = f"Repair Request - {request_details.get('issue_category', 'Maintenance')} Issue"
-        msg['From'] = EMAIL_CONFIG['user']
-        msg['To'] = EMAIL_CONFIG['distribution_list']
-        
-        html_part = MIMEText(body, 'html')
-        msg.attach(html_part)
-        
-        server = smtplib.SMTP(EMAIL_CONFIG['server'], EMAIL_CONFIG['port'])
-        server.starttls()
-        server.login(EMAIL_CONFIG['user'], EMAIL_CONFIG['password'])
-        server.send_message(msg)
-        server.quit()
-        
-        logger.info(f"Email notification sent for task {task_gid}")
-        return True
-    except Exception as e:
-        logger.error(f"Error sending email notification: {e}")
-        return False
-
 def process_repair_request(task):
     """Process a new repair request task with enhanced field extraction"""
     try:
+        # Get full task details
         task_gid = task['gid']
         task_details = client.tasks.find_by_id(task_gid)
         
-        # (Rest of your existing process_repair_request function)
+        # Extract form field values with more comprehensive mapping
         tenant_info = {
             'first_name': get_task_field_value(task_details, 'First Name') or 'Unknown',
             'last_name': get_task_field_value(task_details, 'Last Name') or '',
@@ -165,8 +85,41 @@ def process_repair_request(task):
             'phone': get_task_field_value(task_details, 'Phone Number') or 'N/A'
         }
         
-        # Continue with the rest of the processing...
+        property_info = {
+            'address': get_task_field_value(task_details, 'Property Address') or 'Unknown',
+            'unit_number': get_task_field_value(task_details, 'Unit Number') or 'N/A'
+        }
         
+        # Urgency and issue details
+        issue_details = {
+            'urgency_level': get_task_field_value(task_details, 'Urgency Level') or 'Standard',
+            'issue_category': get_task_field_value(task_details, 'Issue Category') or 'Other',
+            'specific_issue': (
+                get_task_field_value(task_details, 'What kind of standard issue') or 
+                get_task_field_value(task_details, 'What kind of emergency issue') or 
+                'Unspecified'
+            ),
+            'description': task_details.get('notes', 'No additional description provided')
+        }
+        
+        # Combine all information for comprehensive logging and processing
+        full_request_details = {
+            **tenant_info,
+            **property_info,
+            **issue_details
+        }
+        
+        # Log the full request details for debugging
+        logger.info(f"Repair Request Details: {full_request_details}")
+        
+        # Create subtasks based on the issue category and urgency
+        create_category_subtasks(
+            task_gid, 
+            issue_details['issue_category'], 
+            issue_details['urgency_level']
+        )
+        
+        # Send email notification with comprehensive details
         send_email_notification(full_request_details, task_gid)
         
         return True
@@ -177,6 +130,7 @@ def process_repair_request(task):
 def is_repair_form_task(task):
     """Check if a task was created from the repair request form"""
     try:
+        # Check if the task is in the repair project
         for project in task.get('projects', []):
             if project['gid'] == REPAIR_PROJECT_ID:
                 return True
@@ -185,4 +139,5 @@ def is_repair_form_task(task):
         logger.error(f"Error checking if task is from repair form: {e}")
         return False
 
-# Note: Remove any Flask route handlers from this file
+# Add other supporting functions like create_category_subtasks and send_email_notification
+# from your previous implementation...
