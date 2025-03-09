@@ -7,8 +7,55 @@ from repair_workflow import (
     REPAIR_PROJECT_ID, 
     send_email_notification
 )
+import os
 
 app = Flask(__name__)
+
+@app.route('/', methods=['GET'])
+def home():
+    """Landing page with info and links"""
+    html_response = """
+    <html>
+    <head>
+        <title>Property Repair Management</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+            .container { max-width: 600px; margin: 0 auto; }
+            h1 { color: #333; }
+            .button { 
+                display: inline-block; 
+                background: #4CAF50; 
+                color: white; 
+                padding: 10px 20px; 
+                text-decoration: none; 
+                border-radius: 4px; 
+                margin: 10px; 
+                text-align: center;
+            }
+            .grid { 
+                display: flex; 
+                flex-wrap: wrap; 
+                justify-content: center; 
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🔧 Property Repair Management</h1>
+            <p>Use this page to manually trigger actions for the repair management system.</p>
+            
+            <div class="grid">
+                <a href="/manual-trigger" class="button">Dashboard</a>
+                <a href="/health" class="button">Health Check</a>
+            </div>
+            
+            <hr>
+            <p>Current time: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
+        </div>
+    </body>
+    </html>
+    """
+    return html_response
 
 @app.route('/manual-trigger', methods=['GET'])
 def manual_trigger():
@@ -181,4 +228,5 @@ def process_recent():
         return f"Error processing recent tasks: {str(e)}", 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
