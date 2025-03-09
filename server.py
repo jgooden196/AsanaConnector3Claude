@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Import the processing functions from repair_workflow
-from repair_workflow import process_repair_request, is_repair_form_task, client
+from repair_workflow import process_repair_request, is_repair_form_task, client, REPAIR_PROJECT_ID
 
 # Webhook secret storage
 WEBHOOK_SECRET = {}
@@ -31,13 +31,8 @@ def receive_webhook():
     """Handle incoming webhook requests from Asana"""
     # Log all incoming requests
     logger.info(f"Webhook request received - Method: {request.method}")
-    logger.info(f"Headers: {dict(request.headers)}")
     
-    # GET request handling (for debugging)
-    if request.method == 'GET':
-        return "Webhook Endpoint is Accessible", 200
-    
-    # Handshake handling
+    # Handle webhook handshake
     if 'X-Hook-Secret' in request.headers:
         secret = request.headers['X-Hook-Secret']
         
@@ -52,7 +47,7 @@ def receive_webhook():
         response.headers['X-Hook-Secret'] = secret
         return response, 200
     
-    # Event verification for regular webhook events
+    # Verify webhook signatures for regular events
     if request.method == 'POST':
         # Verify signature if X-Hook-Signature is present
         if 'X-Hook-Signature' in request.headers:
@@ -63,45 +58,4 @@ def receive_webhook():
                 return '', 401
             
             # Compute HMAC signature
-            computed_signature = hmac.new(
-                key=stored_secret.encode(),
-                msg=request.data,
-                digestmod=hashlib.sha256
-            ).hexdigest()
-            
-            # Constant-time comparison
-            if not hmac.compare_digest(request.headers['X-Hook-Signature'], computed_signature):
-                logger.error("Signature verification failed")
-                return '', 401
-        
-        # Process webhook events
-        try:
-            data = request.json
-            events = data.get('events', [])
-            
-            # Log received events
-            logger.info(f"Received {len(events)} events")
-            
-            for event in events:
-                # Check for task-related events
-                if (event.get('action') == 'added' and 
-                    event.get('resource', {}).get('resource_type') == 'task'):
-                    
-                    task_gid = event.get('resource', {}).get('gid')
-                    if task_gid:
-                        task = client.tasks.find_by_id(task_gid)
-                        
-                        if is_repair_form_task(task):
-                            process_repair_request(task)
-            
-            return '', 200
-        
-        except Exception as e:
-            logger.error(f"Error processing webhook events: {e}")
-            return '', 500
-    
-    # Catch-all for unsupported methods
-    return 'Method Not Allowed', 405
-
-if __name__ == '__main__':
-    app.run(port=8080)
+            payload = r
