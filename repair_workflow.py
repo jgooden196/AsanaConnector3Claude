@@ -191,7 +191,7 @@ def extract_repair_details(task):
             elif 'urgency' in field_name or 'priority' in field_name:
                 if field.get('type') == 'enum' and field.get('enum_value'):
                     details['urgency_level'] = field.get('enum_value').get('name')
-                elif field.get('type') == 'text'):
+                elif field.get('type') == 'text':
                     details['urgency_level'] = field.get('text_value')
             
             # Extract other fields
@@ -208,15 +208,15 @@ def extract_repair_details(task):
                     details['email'] = field.get('text_value')
             
             elif 'phone' in field_name and not details['phone']:
-                if field.get('type') == 'text'):
+                if field.get('type') == 'text':
                     details['phone'] = field.get('text_value')
             
             elif 'address' in field_name and not details['address']:
-                if field.get('type') == 'text'):
+                if field.get('type') == 'text':
                     details['address'] = field.get('text_value')
             
             elif 'unit' in field_name and not details['unit_number']:
-                if field.get('type') == 'text'):
+                if field.get('type') == 'text':
                     details['unit_number'] = field.get('text_value')
     
     # Set fallback values for missing fields
