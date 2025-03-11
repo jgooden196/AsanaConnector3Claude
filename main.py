@@ -227,6 +227,117 @@ def process_recent():
     except Exception as e:
         return f"Error processing recent tasks: {str(e)}", 500
 
+@app.route('/debug', methods=['GET'])
+def debug():
+    """Debug endpoint to inspect tasks and custom fields"""
+    try:
+        # Get project info
+        project = client.projects.find_by_id(REPAIR_PROJECT_ID)
+        project_name = project.get('name', 'Unknown project')
+        
+        # Get custom field settings
+        custom_field_settings = client.projects.get_custom_field_settings_for_project(REPAIR_PROJECT_ID)
+        custom_fields_info = []
+        
+        for setting in custom_field_settings:
+            if 'custom_field' in setting:
+                field = setting['custom_field']
+                custom_fields_info.append({
+                    'name': field.get('name'),
+                    'type': field.get('resource_subtype'),
+                    'gid': field.get('gid')
+                })
+        
+        # Get recent tasks
+        tasks = list(client.tasks.find_all({
+            'project': REPAIR_PROJECT_ID,
+            'modified_since': (datetime.now() - timedelta(days=1)).isoformat(),
+            'opt_fields': 'name,custom_fields,custom_fields.name,custom_fields.type,custom_fields.enum_value,notes'
+        }))
+        
+        task_info = []
+        for task in tasks:
+            task_fields = []
+            for field in task.get('custom_fields', []):
+                value = None
+                if field.get('type') == 'enum' and field.get('enum_value'):
+                    value = field.get('enum_value').get('name')
+                elif field.get('type') == 'text':
+                    value = field.get('text_value')
+                
+                task_fields.append({
+                    'name': field.get('name'),
+                    'type': field.get('type'),
+                    'value': value
+                })
+            
+            task_info.append({
+                'gid': task.get('gid'),
+                'name': task.get('name'),
+                'has_notes': bool(task.get('notes')),
+                'custom_fields': task_fields
+            })
+        
+        # Format HTML response
+        html_response = f"""
+        <html>
+        <head>
+            <title>Debug Information</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
+                .container {{ max-width: 800px; margin: 0 auto; }}
+                h1, h2 {{ color: #333; }}
+                .section {{ margin-bottom: 30px; }}
+                .field {{ margin-bottom: 10px; padding: 8px; background: #f5f5f5; border-radius: 4px; }}
+                .task {{ margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 4px; }}
+                .button {{ 
+                    display: inline-block; 
+                    background: #4CAF50; 
+                    color: white; 
+                    padding: 10px 20px; 
+                    text-decoration: none; 
+                    border-radius: 4px; 
+                    margin-top: 20px; 
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Debug Information</h1>
+                
+                <div class="section">
+                    <h2>Project Information</h2>
+                    <p><strong>Project ID:</strong> {REPAIR_PROJECT_ID}</p>
+                    <p><strong>Project Name:</strong> {project_name}</p>
+                </div>
+                
+                <div class="section">
+                    <h2>Custom Fields ({len(custom_fields_info)})</h2>
+                    {"".join([f'<div class="field"><strong>{cf["name"]}</strong> ({cf["type"]})</div>' for cf in custom_fields_info])}
+                </div>
+                
+                <div class="section">
+                    <h2>Recent Tasks ({len(task_info)})</h2>
+                    {"".join([
+                        f'<div class="task">'+
+                        f'<p><strong>Task:</strong> {t["name"]} (ID: {t["gid"]})</p>'+
+                        f'<p><strong>Has Notes:</strong> {t["has_notes"]}</p>'+
+                        f'<p><strong>Custom Fields:</strong></p>'+
+                        f'<ul>{"".join([f"<li><strong>{cf['name']}:</strong> {cf['value'] or 'None'}</li>" for cf in t["custom_fields"]])}</ul>'+
+                        f'</div>'
+                        for t in task_info
+                    ])}
+                </div>
+                
+                <a href="/manual-trigger" class="button">Back to Main Menu</a>
+            </div>
+        </body>
+        </html>
+        """
+        return html_response
+    except Exception as e:
+        return f"Error debugging: {str(e)}", 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
